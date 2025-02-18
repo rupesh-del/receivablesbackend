@@ -16,16 +16,20 @@ const pool = new Pool({
 app.get("/", (req, res) => {
   res.send("Backend is working! ✅");
 });
-
+const formatDate = (date) => new Date(date).toISOString().split("T")[0];
 // Fetch all receivables
 app.get("/receivables", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM receivables;");
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server Error");
-  }
+    try {
+        const result = await pool.query("SELECT * FROM receivables ORDER BY due_date ASC;");
+        const formattedData = result.rows.map(row => ({
+            ...row,
+            due_date: formatDate(row.due_date) // Formats date properly
+        }));
+        res.json(formattedData);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
 });
 
 // Start server
