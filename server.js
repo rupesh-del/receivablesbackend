@@ -16,14 +16,17 @@ const pool = new Pool({
 app.get("/", (req, res) => {
   res.send("Backend is working! ✅");
 });
-const formatDate = (date) => new Date(date).toISOString().split("T")[0];
+
+// ✅ FIXED: Date Formatting Function
+const formatDate = (date) => date.toISOString().split("T")[0];
+
 // Fetch all receivables
 app.get("/receivables", async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM receivables ORDER BY due_date ASC;");
         const formattedData = result.rows.map(row => ({
             ...row,
-            due_date: formatDate(row.due_date) // Formats date properly
+            due_date: formatDate(row.due_date) // ✅ Properly formatted
         }));
         res.json(formattedData);
     } catch (error) {
