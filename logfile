@@ -1,0 +1,2 @@
+2025-02-18 14:05:51.332 -04 [22544] LOG:  redirecting log output to logging collector process
+2025-02-18 14:05:51.332 -04 [22544] HINT:  Future log output will appear in directory "log".
