@@ -202,11 +202,23 @@ app.delete("/invoices/:id", async (req, res) => {
 */
 
 // Get all payments
+// ✅ Fetch Payments (GET /payments)
 app.get("/payments", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT payments.*, clients.full_name FROM payments JOIN clients ON payments.client_id = clients.id ORDER BY payment_date DESC;"
-    );
+    const result = await pool.query(`
+      SELECT 
+        payments.id, 
+        clients.full_name AS client, 
+        invoices.invoice_number, 
+        payments.date_created AS date_of_payment, 
+        payments.mode, 
+        payments.amount, 
+        (invoices.amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = invoices.id), 0)) AS balance_outstanding
+      FROM payments
+      JOIN invoices ON payments.invoice_id = invoices.id
+      JOIN clients ON invoices.client_id = clients.id
+      ORDER BY payments.date_created DESC;
+    `);
     res.json(result.rows);
   } catch (error) {
     console.error("❌ Error fetching payments:", error);
@@ -214,12 +226,59 @@ app.get("/payments", async (req, res) => {
   }
 });
 
-// Delete a payment
+// ✅ Add New Payment (POST /payments)
+app.post("/payments", async (req, res) => {
+  try {
+    const payments = req.body;
+
+    // Validate input
+    if (!Array.isArray(payments) || payments.length === 0) {
+      return res.status(400).json({ error: "At least one payment must be provided." });
+    }
+
+    for (const payment of payments) {
+      const { invoice_id, mode, amount } = payment;
+      if (!invoice_id || !mode || !amount) {
+        return res.status(400).json({ error: "Invoice, mode of payment, and amount are required." });
+      }
+    }
+
+    // Insert multiple payments
+    const values = payments.map(({ invoice_id, mode, amount }) => 
+      [invoice_id, mode, amount]
+    );
+
+    const query = `
+      INSERT INTO payments (invoice_id, mode, amount, date_created)
+      VALUES ${values.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, CURRENT_TIMESTAMP)`).join(", ")}
+      RETURNING *;
+    `;
+
+    const flatValues = values.flat();
+    const result = await pool.query(query, flatValues);
+
+    res.status(201).json(result.rows);
+  } catch (error) {
+    console.error("❌ Error adding payment:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ✅ Delete a Payment (DELETE /payments/:id)
 app.delete("/payments/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Check if payment exists
+    const checkPayment = await pool.query("SELECT * FROM payments WHERE id = $1", [id]);
+    if (checkPayment.rowCount === 0) {
+      return res.status(404).json({ error: "Payment not found" });
+    }
+
+    // Delete payment
     await pool.query("DELETE FROM payments WHERE id = $1", [id]);
     res.json({ message: "Payment deleted successfully" });
+
   } catch (error) {
     console.error("❌ Error deleting payment:", error);
     res.status(500).json({ error: "Internal Server Error" });
