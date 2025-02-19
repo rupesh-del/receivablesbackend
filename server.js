@@ -151,6 +151,40 @@ app.delete("/invoices/:id", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// ✅ Update an Invoice (Edit Only Amount or Item)
+app.put("/invoices/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, item } = req.body;
+
+    // Ensure at least one field is provided
+    if (!amount && !item) {
+      return res.status(400).json({ error: "Must provide amount or item to update" });
+    }
+
+    // Check if invoice exists
+    const checkInvoice = await pool.query("SELECT * FROM invoices WHERE id = $1", [id]);
+    if (checkInvoice.rowCount === 0) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
+
+    // Update invoice (only update fields that are provided)
+    const updatedInvoice = await pool.query(
+      `UPDATE invoices 
+       SET amount = COALESCE($1, amount), 
+           item = COALESCE($2, item) 
+       WHERE id = $3 
+       RETURNING *`,
+      [amount, item, id]
+    );
+
+    res.json(updatedInvoice.rows[0]);
+
+  } catch (error) {
+    console.error("❌ Error updating invoice:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 
 /* 
