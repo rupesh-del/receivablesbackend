@@ -227,6 +227,31 @@ app.get("/payments", async (req, res) => {
   }
 });
 
+// ✅ Fetch Invoices for a Specific Client (Only Unpaid Invoices)
+app.get("/invoices", async (req, res) => {
+  try {
+    const { client_id } = req.query;
+
+    if (!client_id) {
+      return res.status(400).json({ error: "Client ID is required." });
+    }
+
+    const result = await pool.query(`
+      SELECT id, invoice_number, amount, 
+        (amount - COALESCE((SELECT SUM(amount) FROM payments WHERE payments.invoice_id = invoices.id), 0)) AS balance_outstanding
+      FROM invoices
+      WHERE client_id = $1
+      HAVING (amount - COALESCE((SELECT SUM(amount) FROM payments WHERE payments.invoice_id = invoices.id), 0)) > 0
+      ORDER BY due_date ASC;
+    `, [client_id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching invoices:", error.message);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
+  }
+});
+
 // ✅ Add New Payment (POST /payments)
 app.post("/payments", async (req, res) => {
   try {
@@ -241,6 +266,29 @@ app.post("/payments", async (req, res) => {
       const { invoice_id, mode, amount } = payment;
       if (!invoice_id || !mode || !amount) {
         return res.status(400).json({ error: "Invoice, mode of payment, and amount are required." });
+      }
+
+      // ✅ Check if invoice exists and belongs to a client
+      const invoiceQuery = await pool.query(`
+        SELECT client_id, amount, 
+          (amount - COALESCE((SELECT SUM(amount) FROM payments WHERE payments.invoice_id = invoices.id), 0)) AS balance_outstanding
+        FROM invoices WHERE id = $1
+      `, [invoice_id]);
+
+      if (invoiceQuery.rowCount === 0) {
+        return res.status(400).json({ error: `Invoice ${invoice_id} does not exist.` });
+      }
+
+      const invoice = invoiceQuery.rows[0];
+
+      // ✅ Prevent payments for fully paid invoices
+      if (invoice.balance_outstanding <= 0) {
+        return res.status(400).json({ error: `Invoice ${invoice_id} is already fully paid.` });
+      }
+
+      // ✅ Prevent overpayment
+      if (amount > invoice.balance_outstanding) {
+        return res.status(400).json({ error: `Payment exceeds outstanding balance for Invoice ${invoice_id}.` });
       }
     }
 
@@ -285,6 +333,7 @@ app.delete("/payments/:id", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
+
 
 /* 
 ===========================================
