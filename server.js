@@ -29,7 +29,7 @@ app.get("/clients", async (req, res) => {
     const result = await pool.query("SELECT * FROM clients ORDER BY id ASC;");
     res.json(result.rows);
   } catch (error) {
-    console.error("Error fetching clients:", error);
+    console.error("❌ Error fetching clients:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -47,7 +47,7 @@ app.post("/clients", async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error("Error adding client:", error);
+    console.error("❌ Error adding client:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -60,7 +60,7 @@ app.get("/clients/:id", async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: "Client not found" });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error("Error fetching client:", error);
+    console.error("❌ Error fetching client:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -72,7 +72,7 @@ app.delete("/clients/:id", async (req, res) => {
     await pool.query("DELETE FROM clients WHERE id = $1", [id]);
     res.json({ message: "Client deleted successfully" });
   } catch (error) {
-    console.error("Error deleting client:", error);
+    console.error("❌ Error deleting client:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -88,14 +88,14 @@ app.get("/invoices", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT invoices.id, invoices.invoice_number, invoices.amount, invoices.due_date, invoices.status, 
-             invoices.client_id, clients.full_name 
+             invoices.client_id, invoices.item, clients.full_name 
       FROM invoices 
       JOIN clients ON invoices.client_id = clients.id 
       ORDER BY due_date ASC;
     `);
     res.json(result.rows);
   } catch (error) {
-    console.error("Error fetching invoices:", error);
+    console.error("❌ Error fetching invoices:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -103,7 +103,7 @@ app.get("/invoices", async (req, res) => {
 // Add a new invoice
 app.post("/invoices", async (req, res) => {
   try {
-    const { client_id, amount, due_date, status } = req.body;
+    const { client_id, amount, due_date, status, item } = req.body;
     if (!client_id || !amount || !due_date) {
       return res.status(400).json({ error: "All fields are required" });
     }
@@ -115,52 +115,24 @@ app.post("/invoices", async (req, res) => {
     const invoice_number = `INV-${String(invoiceNumberResult.rows[0].next_invoice_number).padStart(4, "0")}`;
 
     const result = await pool.query(
-      "INSERT INTO invoices (client_id, invoice_number, amount, due_date, status) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [client_id, invoice_number, amount, due_date, status || "Pending"]
+      "INSERT INTO invoices (client_id, invoice_number, amount, due_date, status, item) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+      [client_id, invoice_number, amount, due_date, status || "Pending", item || "N/A"]
     );
 
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error("Error adding invoice:", error);
+    console.error("❌ Error adding invoice:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Delete an Invoice
-// DELETE an Invoice
-app.delete("/invoices/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    console.log(`🗑 Received DELETE request for invoice ID: ${id}`); // ✅ Debugging
-
-    // Check if invoice exists before deleting
-    const checkInvoice = await pool.query("SELECT * FROM invoices WHERE id = $1", [id]);
-    if (checkInvoice.rowCount === 0) {
-      console.log(`🚨 Invoice ID: ${id} not found in database`);
-      return res.status(404).json({ error: "Invoice not found" });
-    }
-
-    // Delete invoice
-    await pool.query("DELETE FROM invoices WHERE id = $1", [id]);
-    console.log(`✅ Invoice ID: ${id} deleted successfully`);
-    res.json({ message: "Invoice deleted successfully" });
-
-  } catch (error) {
-    console.error("❌ Error deleting invoice:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
 // ✅ Update an Invoice (Edit Only Amount or Item)
 app.put("/invoices/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount, item } = req.body;
+    let { amount, item } = req.body;
 
-    // Ensure at least one field is provided
-    if (!amount && !item) {
-      return res.status(400).json({ error: "Must provide amount or item to update" });
-    }
+    console.log(`📝 Update request received for Invoice ID: ${id}`);
 
     // Check if invoice exists
     const checkInvoice = await pool.query("SELECT * FROM invoices WHERE id = $1", [id]);
@@ -168,7 +140,7 @@ app.put("/invoices/:id", async (req, res) => {
       return res.status(404).json({ error: "Invoice not found" });
     }
 
-    // Update invoice (only update fields that are provided)
+    // Update only the allowed fields
     const updatedInvoice = await pool.query(
       `UPDATE invoices 
        SET amount = COALESCE($1, amount), 
@@ -186,6 +158,26 @@ app.put("/invoices/:id", async (req, res) => {
   }
 });
 
+// Delete an Invoice
+app.delete("/invoices/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if invoice exists before deleting
+    const checkInvoice = await pool.query("SELECT * FROM invoices WHERE id = $1", [id]);
+    if (checkInvoice.rowCount === 0) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
+
+    // Delete invoice
+    await pool.query("DELETE FROM invoices WHERE id = $1", [id]);
+    res.json({ message: "Invoice deleted successfully" });
+
+  } catch (error) {
+    console.error("❌ Error deleting invoice:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 /* 
 ===========================================
@@ -201,25 +193,7 @@ app.get("/payments", async (req, res) => {
     );
     res.json(result.rows);
   } catch (error) {
-    console.error("Error fetching payments:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-// Add a payment
-app.post("/payments", async (req, res) => {
-  try {
-    const { client_id, amount, payment_date, method } = req.body;
-    if (!client_id || !amount || !payment_date || !method) {
-      return res.status(400).json({ error: "All fields are required" });
-    }
-    const result = await pool.query(
-      "INSERT INTO payments (client_id, amount, payment_date, method) VALUES ($1, $2, $3, $4) RETURNING *",
-      [client_id, amount, payment_date, method]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("Error adding payment:", error);
+    console.error("❌ Error fetching payments:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -231,40 +205,17 @@ app.delete("/payments/:id", async (req, res) => {
     await pool.query("DELETE FROM payments WHERE id = $1", [id]);
     res.json({ message: "Payment deleted successfully" });
   } catch (error) {
-    console.error("Error deleting payment:", error);
+    console.error("❌ Error deleting payment:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 /* 
 ===========================================
- ✅ REPORTS & SETTINGS (Optional)
+ ✅ SERVER INITIALIZATION
 ===========================================
 */
 
-// Get all reports
-app.get("/reports", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM reports ORDER BY generated_at DESC;");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching reports:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-// Get settings
-app.get("/settings", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM settings;");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching settings:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-// Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🔥 Server running on port ${PORT}`);
