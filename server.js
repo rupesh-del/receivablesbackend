@@ -84,11 +84,12 @@ app.delete("/clients/:id", async (req, res) => {
 */
 
 // Get all invoices (Now includes the client name directly in the response)
+// Get all invoices (Now includes the client name directly in the response)
 app.get("/invoices", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT invoices.id, invoices.invoice_number, invoices.amount, invoices.due_date, invoices.status, 
-             invoices.client_id, invoices.item, clients.full_name 
+             invoices.client_id, invoices.item, invoices.date_created, clients.full_name 
       FROM invoices 
       JOIN clients ON invoices.client_id = clients.id 
       ORDER BY due_date ASC;
@@ -113,7 +114,7 @@ app.post("/invoices", async (req, res) => {
 
     // Validate each invoice
     for (const invoice of invoices) {
-      const { client_id, item, amount, due_date, status } = invoice;
+      const { client_id, item, amount, due_date } = invoice;
       if (!client_id || !item || !amount || !due_date) {
         return res.status(400).json({ error: "Each invoice must have client_id, item, amount, and due_date." });
       }
@@ -126,8 +127,8 @@ app.post("/invoices", async (req, res) => {
     });
 
     const query = `
-      INSERT INTO invoices (client_id, invoice_number, item, amount, due_date, status)
-      VALUES ${values.map((_, i) => `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6})`).join(", ")}
+      INSERT INTO invoices (client_id, invoice_number, item, amount, due_date, status, date_created)
+      VALUES ${values.map((_, i) => `($${i * 7 + 1}, $${i * 7 + 2}, $${i * 7 + 3}, $${i * 7 + 4}, $${i * 7 + 5}, $${i * 7 + 6}, CURRENT_TIMESTAMP)`).join(", ")}
       RETURNING *;
     `;
 
