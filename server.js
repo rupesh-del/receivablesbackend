@@ -101,27 +101,42 @@ app.get("/invoices", async (req, res) => {
 });
 
 // Add a new invoice
+// ✅ Add one or more invoices at once
 app.post("/invoices", async (req, res) => {
   try {
-    const { client_id, amount, due_date, status, item } = req.body;
-    if (!client_id || !amount || !due_date) {
-      return res.status(400).json({ error: "All fields are required" });
+    const invoices = req.body;
+
+    // Ensure request is an array and has at least one invoice
+    if (!Array.isArray(invoices) || invoices.length === 0 || invoices.length > 5) {
+      return res.status(400).json({ error: "You can add between 1 to 5 invoices at a time." });
     }
 
-    // Generate a unique invoice number (Auto-increment logic)
-    const invoiceNumberResult = await pool.query(`
-      SELECT COUNT(*) + 1 AS next_invoice_number FROM invoices;
-    `);
-    const invoice_number = `INV-${String(invoiceNumberResult.rows[0].next_invoice_number).padStart(4, "0")}`;
+    // Validate each invoice
+    for (const invoice of invoices) {
+      const { client_id, item, amount, due_date, status } = invoice;
+      if (!client_id || !item || !amount || !due_date) {
+        return res.status(400).json({ error: "Each invoice must have client_id, item, amount, and due_date." });
+      }
+    }
 
-    const result = await pool.query(
-      "INSERT INTO invoices (client_id, invoice_number, amount, due_date, status, item) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-      [client_id, invoice_number, amount, due_date, status || "Pending", item || "N/A"]
-    );
+    // Prepare batch insert query
+    const values = invoices.map(({ client_id, item, amount, due_date, status }) => {
+      const invoice_number = `INV-${Math.floor(Math.random() * 90000) + 10000}`;
+      return [client_id, invoice_number, item, amount, due_date, status || "Pending"];
+    });
 
-    res.status(201).json(result.rows[0]);
+    const query = `
+      INSERT INTO invoices (client_id, invoice_number, item, amount, due_date, status)
+      VALUES ${values.map((_, i) => `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6})`).join(", ")}
+      RETURNING *;
+    `;
+
+    const flatValues = values.flat();
+    const result = await pool.query(query, flatValues);
+
+    res.status(201).json(result.rows);
   } catch (error) {
-    console.error("❌ Error adding invoice:", error);
+    console.error("❌ Error adding invoices:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
