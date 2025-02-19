@@ -203,6 +203,7 @@ app.delete("/invoices/:id", async (req, res) => {
 
 // Get all payments
 // ✅ Fetch Payments (GET /payments)
+// ✅ Fetch Payments (GET /payments)
 app.get("/payments", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -210,19 +211,19 @@ app.get("/payments", async (req, res) => {
         payments.id, 
         clients.full_name AS client, 
         invoices.invoice_number, 
-        payments.date_created AS date_of_payment, 
+        payments.payment_date, 
         payments.mode, 
         payments.amount, 
         (invoices.amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = invoices.id), 0)) AS balance_outstanding
       FROM payments
       JOIN invoices ON payments.invoice_id = invoices.id
       JOIN clients ON invoices.client_id = clients.id
-      ORDER BY payments.date_created DESC;
+      ORDER BY payments.payment_date DESC;
     `);
     res.json(result.rows);
   } catch (error) {
-    console.error("❌ Error fetching payments:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ Error fetching payments:", error.message);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
 
@@ -249,8 +250,8 @@ app.post("/payments", async (req, res) => {
     );
 
     const query = `
-      INSERT INTO payments (invoice_id, mode, amount, date_created)
-      VALUES ${values.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, CURRENT_TIMESTAMP)`).join(", ")}
+      INSERT INTO payments (invoice_id, mode, amount, payment_date, date_created)
+      VALUES ${values.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, CURRENT_DATE, CURRENT_TIMESTAMP)`).join(", ")}
       RETURNING *;
     `;
 
@@ -259,8 +260,8 @@ app.post("/payments", async (req, res) => {
 
     res.status(201).json(result.rows);
   } catch (error) {
-    console.error("❌ Error adding payment:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ Error adding payment:", error.message);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
 
@@ -280,8 +281,8 @@ app.delete("/payments/:id", async (req, res) => {
     res.json({ message: "Payment deleted successfully" });
 
   } catch (error) {
-    console.error("❌ Error deleting payment:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ Error deleting payment:", error.message);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
 
