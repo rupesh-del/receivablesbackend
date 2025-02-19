@@ -4,11 +4,7 @@ const cors = require("cors");
 const { Pool } = require("pg");
 
 const app = express();
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE"], // ✅ Explicitly allow DELETE
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(cors()); // ✅ Allow all origins for testing (Adjust for production)
 app.use(express.json());
 
 const pool = new Pool({
@@ -56,17 +52,43 @@ app.post("/clients", async (req, res) => {
   }
 });
 
+// Get a single client by ID
+app.get("/clients/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query("SELECT * FROM clients WHERE id = $1", [id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: "Client not found" });
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching client:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Delete a client
+app.delete("/clients/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("DELETE FROM clients WHERE id = $1", [id]);
+    res.json({ message: "Client deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting client:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 /* 
 ===========================================
  ✅ INVOICES ENDPOINTS
 ===========================================
 */
 
-// Get all invoices (Includes client name)
+// Get all invoices (Now includes the client name directly in the response)
 app.get("/invoices", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT invoices.*, clients.full_name 
+      SELECT invoices.id, invoices.invoice_number, invoices.amount, invoices.due_date, invoices.status, 
+             invoices.client_id, clients.full_name 
       FROM invoices 
       JOIN clients ON invoices.client_id = clients.id 
       ORDER BY due_date ASC;
@@ -78,7 +100,7 @@ app.get("/invoices", async (req, res) => {
   }
 });
 
-// Add a new invoice (Auto-generates invoice number)
+// Add a new invoice
 app.post("/invoices", async (req, res) => {
   try {
     const { client_id, amount, due_date, status } = req.body;
@@ -86,7 +108,7 @@ app.post("/invoices", async (req, res) => {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    // Generate a unique invoice number
+    // Generate a unique invoice number (Auto-increment logic)
     const invoiceNumberResult = await pool.query(`
       SELECT COUNT(*) + 1 AS next_invoice_number FROM invoices;
     `);
@@ -104,21 +126,18 @@ app.post("/invoices", async (req, res) => {
   }
 });
 
-// ✅ DELETE an Invoice
+// Delete an Invoice
+// DELETE an Invoice
 app.delete("/invoices/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`🗑 Attempting to delete invoice with ID: ${id}`); // Debugging log
 
-    // Validate if ID is a number
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "Invalid invoice ID" });
-    }
+    console.log(`🗑 Received DELETE request for invoice ID: ${id}`); // ✅ Debugging
 
     // Check if invoice exists before deleting
     const checkInvoice = await pool.query("SELECT * FROM invoices WHERE id = $1", [id]);
     if (checkInvoice.rowCount === 0) {
-      console.log(`🚨 Invoice ID: ${id} not found`);
+      console.log(`🚨 Invoice ID: ${id} not found in database`);
       return res.status(404).json({ error: "Invoice not found" });
     }
 
@@ -133,6 +152,7 @@ app.delete("/invoices/:id", async (req, res) => {
   }
 });
 
+
 /* 
 ===========================================
  ✅ PAYMENTS ENDPOINTS
@@ -142,12 +162,9 @@ app.delete("/invoices/:id", async (req, res) => {
 // Get all payments
 app.get("/payments", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT payments.*, clients.full_name 
-      FROM payments 
-      JOIN clients ON payments.client_id = clients.id 
-      ORDER BY payment_date DESC;
-    `);
+    const result = await pool.query(
+      "SELECT payments.*, clients.full_name FROM payments JOIN clients ON payments.client_id = clients.id ORDER BY payment_date DESC;"
+    );
     res.json(result.rows);
   } catch (error) {
     console.error("Error fetching payments:", error);
@@ -169,6 +186,18 @@ app.post("/payments", async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Error adding payment:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Delete a payment
+app.delete("/payments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("DELETE FROM payments WHERE id = $1", [id]);
+    res.json({ message: "Payment deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting payment:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
