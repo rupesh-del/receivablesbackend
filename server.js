@@ -84,12 +84,13 @@ app.delete("/clients/:id", async (req, res) => {
 */
 
 // Get all invoices (Now includes the client name directly in the response)
-// Get all invoices (Now includes the client name directly in the response)
 app.get("/invoices", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT invoices.id, invoices.invoice_number, invoices.amount, invoices.due_date, invoices.status, 
-             invoices.client_id, invoices.item, invoices.date_created, clients.full_name 
+      SELECT 
+        invoices.id, invoices.invoice_number, invoices.amount, invoices.due_date, invoices.status, 
+        invoices.client_id, invoices.item, invoices.date_created, clients.full_name,
+        COALESCE((SELECT SUM(payments.amount) FROM payments WHERE payments.invoice_id = invoices.id), 0) AS total_paid
       FROM invoices 
       JOIN clients ON invoices.client_id = clients.id 
       ORDER BY due_date ASC;
