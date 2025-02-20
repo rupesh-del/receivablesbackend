@@ -334,6 +334,69 @@ app.delete("/payments/:id", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
+/* 
+===========================================
+ ✅ REPORT ENDPOINTS
+===========================================
+*/
+app.get("/reports/outstanding", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        clients.full_name, 
+        SUM(invoices.amount) - COALESCE(SUM(payments.amount), 0) AS totalOwed
+      FROM clients
+      JOIN invoices ON clients.id = invoices.client_id
+      LEFT JOIN payments ON invoices.id = payments.invoice_id
+      GROUP BY clients.full_name
+      HAVING (SUM(invoices.amount) - COALESCE(SUM(payments.amount), 0)) > 0
+      ORDER BY totalOwed DESC;
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching outstanding amounts report:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+app.get("/reports/overall", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        clients.full_name, 
+        COUNT(invoices.id) AS invoices, 
+        COALESCE(SUM(invoices.amount), 0) AS totalOwed,
+        COALESCE(SUM(payments.amount), 0) AS totalPaid
+      FROM clients
+      LEFT JOIN invoices ON clients.id = invoices.client_id
+      LEFT JOIN payments ON invoices.id = payments.invoice_id
+      GROUP BY clients.full_name
+      ORDER BY full_name ASC;
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching overall report:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+app.get("/reports/payments", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        clients.full_name AS client_name,
+        payments.payment_date,
+        payments.mode,
+        payments.amount
+      FROM payments
+      JOIN invoices ON payments.invoice_id = invoices.id
+      JOIN clients ON invoices.client_id = clients.id
+      ORDER BY payments.payment_date DESC;
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching payments report:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 
 /* 
