@@ -346,10 +346,10 @@ app.get("/reports/outstanding", async (req, res) => {
         clients.full_name, 
         SUM(invoices.amount) - COALESCE(SUM(payments.amount), 0) AS totalOwed
       FROM clients
-      JOIN invoices ON clients.id = invoices.client_id
+      LEFT JOIN invoices ON clients.id = invoices.client_id
       LEFT JOIN payments ON invoices.id = payments.invoice_id
       GROUP BY clients.full_name
-      HAVING (SUM(invoices.amount) - COALESCE(SUM(payments.amount), 0)) > 0
+      HAVING SUM(invoices.amount) - COALESCE(SUM(payments.amount), 0) > 0
       ORDER BY totalOwed DESC;
     `);
     res.json(result.rows);
@@ -358,19 +358,20 @@ app.get("/reports/outstanding", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 app.get("/reports/overall", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
         clients.full_name, 
         COUNT(invoices.id) AS invoices, 
-        COALESCE(SUM(invoices.amount), 0) AS totalOwed,
+        SUM(invoices.amount) AS totalOwed, 
         COALESCE(SUM(payments.amount), 0) AS totalPaid
       FROM clients
       LEFT JOIN invoices ON clients.id = invoices.client_id
       LEFT JOIN payments ON invoices.id = payments.invoice_id
       GROUP BY clients.full_name
-      ORDER BY full_name ASC;
+      ORDER BY totalOwed DESC;
     `);
     res.json(result.rows);
   } catch (error) {
@@ -378,13 +379,14 @@ app.get("/reports/overall", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 app.get("/reports/payments", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
-        clients.full_name AS client_name,
-        payments.payment_date,
-        payments.mode,
+        clients.full_name AS client_name, 
+        payments.payment_date, 
+        payments.mode, 
         payments.amount
       FROM payments
       JOIN invoices ON payments.invoice_id = invoices.id
@@ -397,6 +399,7 @@ app.get("/reports/payments", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 
 /* 
