@@ -24,15 +24,31 @@ app.get("/", (req, res) => {
 */
 
 // Get all clients
+// Get all clients with balance
 app.get("/clients", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM clients ORDER BY id ASC;");
+    const result = await pool.query(`
+      SELECT 
+        clients.id, 
+        clients.full_name, 
+        clients.address, 
+        clients.contact, 
+        COALESCE(SUM(invoices.amount_due), 0) - COALESCE(SUM(payments.amount_paid), 0) AS balance
+      FROM clients
+      LEFT JOIN invoices ON clients.id = invoices.client_id
+      LEFT JOIN payments ON invoices.id = payments.invoice_id
+      GROUP BY clients.id, clients.full_name, clients.address, clients.contact
+      ORDER BY clients.id ASC;
+    `);
+
+    console.log("Fetched Clients from DB:", result.rows); // ✅ Debugging log
     res.json(result.rows);
   } catch (error) {
     console.error("❌ Error fetching clients:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 // Add a new client
 app.post("/clients", async (req, res) => {
@@ -138,8 +154,8 @@ app.post("/invoices", async (req, res) => {
 
     res.status(201).json(result.rows);
   } catch (error) {
-    console.error("❌ Error adding invoices:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ SQL Error:", error.message, error.stack); // ✅ Shows real PostgreSQL error
+    res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 });
 
