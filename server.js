@@ -33,7 +33,7 @@ app.get("/clients", async (req, res) => {
         clients.full_name, 
         clients.address, 
         clients.contact, 
-        COALESCE(SUM(invoices.amount_due), 0) - COALESCE(SUM(payments.amount_paid), 0) AS balance
+        COALESCE(SUM(invoices.outstanding_amount), 0) - COALESCE(SUM(payments.amount_paid), 0) AS balance
       FROM clients
       LEFT JOIN invoices ON clients.id = invoices.client_id
       LEFT JOIN payments ON invoices.id = payments.invoice_id
@@ -41,11 +41,10 @@ app.get("/clients", async (req, res) => {
       ORDER BY clients.id ASC;
     `);
 
-    console.log("Fetched Clients from DB:", result.rows); // ✅ Debugging log
     res.json(result.rows);
   } catch (error) {
-    console.error("❌ Error fetching clients:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ SQL Error:", error);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
 
