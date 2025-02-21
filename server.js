@@ -116,46 +116,57 @@ app.get("/invoices", async (req, res) => {
   }
 });
 
-// Add a new invoice
-// ✅ Add one or more invoices at once
 app.post("/invoices", async (req, res) => {
   try {
     const invoices = req.body;
+    console.log("📥 Received Invoices Data:", invoices);
 
-    // Ensure request is an array and has at least one invoice
+    // ✅ Validate input: Ensure it's an array and within allowed range
     if (!Array.isArray(invoices) || invoices.length === 0 || invoices.length > 5) {
       return res.status(400).json({ error: "You can add between 1 to 5 invoices at a time." });
     }
 
-    // Validate each invoice
+    // ✅ Validate each invoice
     for (const invoice of invoices) {
-      const { client_id, item, amount, due_date } = invoice;
-      if (!client_id || !item || !amount || !due_date) {
+      if (!invoice.client_id || !invoice.item || !invoice.amount || !invoice.due_date) {
         return res.status(400).json({ error: "Each invoice must have client_id, item, amount, and due_date." });
       }
     }
 
-    // Prepare batch insert query
-    const values = invoices.map(({ client_id, item, amount, due_date, status }) => {
+    // ✅ Prepare batch insertion
+    const values = [];
+    const placeholders = invoices.map((invoice, i) => {
       const invoice_number = `INV-${Math.floor(Math.random() * 90000) + 10000}`;
-      return [client_id, invoice_number, item, amount, due_date, status || "Pending"];
+      values.push(
+        parseInt(invoice.client_id), // Ensure INTEGER
+        invoice_number,
+        invoice.item.toString(), // Ensure TEXT
+        parseFloat(invoice.amount), // Ensure NUMERIC
+        new Date(invoice.due_date).toISOString().slice(0, 10), // Ensure DATE format
+        new Date().toISOString().slice(0, 10), // Auto-set Date Created (YYYY-MM-DD)
+        invoice.status || "Pending"
+      );
+      return `($${i * 7 + 1}, $${i * 7 + 2}, $${i * 7 + 3}, $${i * 7 + 4}, $${i * 7 + 5}, $${i * 7 + 6}, $${i * 7 + 7})`;
     });
 
     const query = `
-      INSERT INTO invoices (client_id, invoice_number, item, amount, due_date, status, date_created)
-      VALUES ${values.map((_, i) => `($${i * 7 + 1}, $${i * 7 + 2}, $${i * 7 + 3}, $${i * 7 + 4}, $${i * 7 + 5}, $${i * 7 + 6}, CURRENT_TIMESTAMP)`).join(", ")}
+      INSERT INTO invoices (client_id, invoice_number, item, amount, due_date, date_created, status)
+      VALUES ${placeholders.join(", ")}
       RETURNING *;
     `;
 
-    const flatValues = values.flat();
-    const result = await pool.query(query, flatValues);
+    console.log("📤 SQL Query:", query);
+    console.log("📤 Values Sent:", values);
 
+    // ✅ Execute query
+    const result = await pool.query(query, values);
     res.status(201).json(result.rows);
   } catch (error) {
-    console.error("❌ SQL Error:", error.message, error.stack); // ✅ Shows real PostgreSQL error
+    console.error("❌ SQL Error in POST /invoices:", error.message);
     res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 });
+
 
 // ✅ Update an Invoice (Edit Only Amount or Item)
 app.put("/invoices/:id", async (req, res) => {
