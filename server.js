@@ -28,17 +28,17 @@ app.get("/", (req, res) => {
 app.get("/clients", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
-        clients.id, 
-        clients.full_name, 
-        clients.address, 
-        clients.contact, 
-        COALESCE(SUM(invoices.outstanding_amount), 0) - COALESCE(SUM(payments.amount), 0) AS balance
-      FROM clients
-      LEFT JOIN invoices ON clients.id = invoices.client_id
-      LEFT JOIN payments ON invoices.id = payments.invoice_id
-      GROUP BY clients.id, clients.full_name, clients.address, clients.contact
-      ORDER BY clients.id ASC;
+SELECT 
+    c.id, 
+    c.full_name, 
+    c.address, 
+    c.contact, 
+    COALESCE(SUM(i.amount), 0) - COALESCE(SUM(p.amount), 0) AS balance
+FROM clients c
+LEFT JOIN invoices i ON c.id = i.client_id
+LEFT JOIN payments p ON i.id = p.invoice_id
+GROUP BY c.id, c.full_name, c.address, c.contact
+ORDER BY c.id ASC;
     `);
 
     res.json(result.rows);
@@ -47,8 +47,6 @@ app.get("/clients", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
-
-
 
 // Add a new client
 app.post("/clients", async (req, res) => {
