@@ -319,18 +319,20 @@ app.post("/payments", async (req, res) => {
     }
 
     // Insert multiple payments
-    const values = payments.map(({ invoice_id, mode, amount }) => 
-      [invoice_id, mode, amount]
-    );
+// Corrected SQL indexing for 3 params per payment
+const values = payments.map(({ invoice_id, mode, amount }) => 
+  [invoice_id, mode, amount]
+);
 
-    const query = `
-      INSERT INTO payments (invoice_id, mode, amount, payment_date, date_created)
-      VALUES ${values.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, CURRENT_DATE, CURRENT_TIMESTAMP)`).join(", ")}
-      RETURNING *;
-    `;
+const query = `
+  INSERT INTO payments (invoice_id, mode, amount, payment_date, date_created)
+  VALUES ${values.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, CURRENT_DATE, CURRENT_TIMESTAMP)`).join(", ")}
+  RETURNING *;
+`;
 
-    const flatValues = values.flat();
-    const result = await pool.query(query, flatValues);
+const flatValues = values.flat();
+const result = await pool.query(query, flatValues);
+
 
     res.status(201).json(result.rows);
   } catch (error) {
