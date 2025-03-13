@@ -25,30 +25,30 @@ app.get("/", (req, res) => {
 
 // Get all clients
 // Get all clients with balance
-app.get("/clients/:id/balance", async (req, res) => {
+app.get("/clients", async (req, res) => {
   try {
-    const { id } = req.params;
+    const result = await pool.query(`
+      SELECT 
+          c.id, 
+          c.full_name, 
+          c.address, 
+          c.contact, 
+          -- ✅ Corrected balance calculation
+          COALESCE((SELECT SUM(i.amount) FROM invoices i WHERE i.client_id = c.id), 0) 
+          - COALESCE((SELECT SUM(p.amount) FROM payments p 
+                      JOIN invoices i ON p.invoice_id = i.id
+                      WHERE i.client_id = c.id), 0) AS balance
+      FROM clients c
+      ORDER BY c.id ASC;
+    `);
 
-    const invoices = await pool.query(
-      "SELECT SUM(amount) AS total_invoices FROM invoices WHERE client_id = $1",
-      [id]
-    );
-
-    const payments = await pool.query(
-      "SELECT SUM(amount) AS total_payments FROM payments JOIN invoices ON payments.invoice_id = invoices.id WHERE invoices.client_id = $1",
-      [id]
-    );
-
-    const totalInvoices = invoices.rows[0].total_invoices || 0;
-    const totalPayments = payments.rows[0].total_payments || 0;
-    const balance = totalInvoices - totalPayments;
-
-    res.json({ client_id: id, totalInvoices, totalPayments, balance });
+    res.json(result.rows);
   } catch (error) {
-    console.error("❌ Error fetching client balance details:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ SQL Error in /clients:", error);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
+
 
 // Add a new client
 app.post("/clients", async (req, res) => {
