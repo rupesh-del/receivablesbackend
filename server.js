@@ -25,26 +25,28 @@ app.get("/", (req, res) => {
 
 // Get all clients
 // Get all clients with balance
-app.get("/clients", async (req, res) => {
+app.get("/clients/:id/balance", async (req, res) => {
   try {
-    const result = await pool.query(`
-SELECT 
-    c.id, 
-    c.full_name, 
-    c.address, 
-    c.contact, 
-    COALESCE(SUM(i.amount), 0) - COALESCE(SUM(p.amount), 0) AS balance
-FROM clients c
-LEFT JOIN invoices i ON c.id = i.client_id
-LEFT JOIN payments p ON i.id = p.invoice_id
-GROUP BY c.id, c.full_name, c.address, c.contact
-ORDER BY c.id ASC;
-    `);
+    const { id } = req.params;
 
-    res.json(result.rows);
+    const invoices = await pool.query(
+      "SELECT SUM(amount) AS total_invoices FROM invoices WHERE client_id = $1",
+      [id]
+    );
+
+    const payments = await pool.query(
+      "SELECT SUM(amount) AS total_payments FROM payments JOIN invoices ON payments.invoice_id = invoices.id WHERE invoices.client_id = $1",
+      [id]
+    );
+
+    const totalInvoices = invoices.rows[0].total_invoices || 0;
+    const totalPayments = payments.rows[0].total_payments || 0;
+    const balance = totalInvoices - totalPayments;
+
+    res.json({ client_id: id, totalInvoices, totalPayments, balance });
   } catch (error) {
-    console.error("❌ SQL Error:", error);
-    res.status(500).json({ error: "Internal Server Error", details: error.message });
+    console.error("❌ Error fetching client balance details:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -183,14 +185,33 @@ app.post("/invoices", async (req, res) => {
     console.log("📤 SQL Query:", query);
     console.log("📤 Values Sent:", values);
 
-    // ✅ Execute query
+    // ✅ Execute batch insert
     const result = await pool.query(query, values);
+
+    // ✅ Extract client IDs from inserted invoices to update their balances
+    const clientIds = [...new Set(invoices.map(inv => inv.client_id))];
+
+    // ✅ Update the balance for each affected client
+    for (const clientId of clientIds) {
+      await pool.query(`
+        UPDATE clients 
+        SET balance = (
+          SELECT COALESCE(SUM(i.amount), 0) - COALESCE(SUM(p.amount), 0) 
+          FROM invoices i 
+          LEFT JOIN payments p ON i.id = p.invoice_id 
+          WHERE i.client_id = $1
+        )
+        WHERE clients.id = $1;
+      `, [clientId]);
+    }
+
     res.status(201).json(result.rows);
   } catch (error) {
     console.error("❌ SQL Error in POST /invoices:", error.message);
     res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 });
+
 
 
 // ✅ Update an Invoice (Edit Only Amount or Item)
@@ -308,7 +329,7 @@ app.post("/payments", async (req, res) => {
   try {
     const payments = req.body;
 
-    // Validate input
+    // ✅ Validate input: Ensure it's an array and not empty
     if (!Array.isArray(payments) || payments.length === 0) {
       return res.status(400).json({ error: "At least one payment must be provided." });
     }
@@ -319,7 +340,7 @@ app.post("/payments", async (req, res) => {
         return res.status(400).json({ error: "Invoice, mode of payment, and amount are required." });
       }
 
-      // ✅ Check if invoice exists and belongs to a client
+      // ✅ Check if the invoice exists and belongs to a client
       const invoiceQuery = await pool.query(`
         SELECT client_id, amount, 
           (amount - COALESCE((SELECT SUM(amount) FROM payments WHERE payments.invoice_id = invoices.id), 0)) AS balance_outstanding
@@ -343,28 +364,61 @@ app.post("/payments", async (req, res) => {
       }
     }
 
-    // Insert multiple payments
-// Corrected SQL indexing for 3 params per payment
-const values = payments.map(({ invoice_id, mode, amount }) => 
-  [invoice_id, mode, amount]
-);
+    // ✅ Prepare batch insertion for multiple payments
+    const values = [];
+    const placeholders = payments.map((payment, i) => {
+      values.push(payment.invoice_id, payment.mode, parseFloat(payment.amount)); // Ensure numerical values
+      return `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, CURRENT_DATE, CURRENT_TIMESTAMP)`;
+    });
 
-const query = `
-  INSERT INTO payments (invoice_id, mode, amount, payment_date, date_created)
-  VALUES ${values.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, CURRENT_DATE, CURRENT_TIMESTAMP)`).join(", ")}
-  RETURNING *;
-`;
+    const query = `
+      INSERT INTO payments (invoice_id, mode, amount, payment_date, date_created)
+      VALUES ${placeholders.join(", ")}
+      RETURNING *;
+    `;
 
-const flatValues = values.flat();
-const result = await pool.query(query, flatValues);
+    console.log("📤 SQL Query:", query);
+    console.log("📤 Values Sent:", values);
 
+    // ✅ Execute batch insert
+    const result = await pool.query(query, values);
+
+    // ✅ Extract client IDs from payments to update their balances
+    const clientIds = [
+      ...new Set(
+        await Promise.all(
+          payments.map(async (payment) => {
+            const client = await pool.query(
+              "SELECT client_id FROM invoices WHERE id = $1",
+              [payment.invoice_id]
+            );
+            return client.rows[0].client_id;
+          })
+        )
+      ),
+    ];
+
+    // ✅ Update the balance for each affected client
+    for (const clientId of clientIds) {
+      await pool.query(`
+        UPDATE clients 
+        SET balance = (
+          SELECT COALESCE(SUM(i.amount), 0) - COALESCE(SUM(p.amount), 0) 
+          FROM invoices i 
+          LEFT JOIN payments p ON i.id = p.invoice_id 
+          WHERE i.client_id = $1
+        )
+        WHERE clients.id = $1;
+      `, [clientId]);
+    }
 
     res.status(201).json(result.rows);
   } catch (error) {
-    console.error("❌ Error adding payment:", error.message);
-    res.status(500).json({ error: "Internal Server Error", details: error.message });
+    console.error("❌ SQL Error in POST /payments:", error.message);
+    res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 });
+
 
 // ✅ Delete a Payment (DELETE /payments/:id)
 app.delete("/payments/:id", async (req, res) => {
